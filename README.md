@@ -1,2 +1,4 @@
-# tiered-data-pipeline
-SQL-based data pipeline implementing medallion architecture: Bronze (raw landing), Silver (validated/cleaned), Gold (business-ready aggregates). Includes DDL, transformations, data quality checks, and documentation.
+# Tiered Data Pipeline 🥉🥈🥇
+
+![SQL](https://img.shields.io/badge/SQL-Data%20Pipeline-blue)
+![Architecture](https://img.shields.io/badge/Architecture-Bronze--Silver--Gold-orange)
