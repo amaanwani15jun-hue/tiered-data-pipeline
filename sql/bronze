@@ -1,1 +1,88 @@
+USE [DataWarehouse]
+GO
+
+/****** Object:  StoredProcedure [Bronze].[load_bronze]    Script Date: 03-01-2026 13:45:29 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+CREATE    PROCEDURE [Bronze].[load_bronze] as
+Begin
+         DECLARE @StartTime DATETIME ;
+        DECLARE @EndTime DATETIME;
+        DECLARE @TableCount INT = 0;
+         DECLARE @TableDuration INT;
+         DECLARE @TableStartTime DATETIME;
+         DECLARE @TableEndTime DATETIME;
+
+
+
+   Begin Try
+        SET @TableStartTime = GETDATE() 
+        -- CRM Tables
+        SET @startTime = GETDATE() 
+        TRUNCATE TABLE [Bronze].[crm_cust_info];
+        BULK INSERT [Bronze].[crm_cust_info] FROM 'E:\sql-data-warehouse-project\datasets\source_crm\cust_info.csv' WITH (FIRSTROW = 2, FIELDTERMINATOR = ',', TABLOCK);
+        SET @TableCount = @TableCount + 1 
+        SET @EndTime = getdate();
+        set @TableDuration = datediff(second , @startTime , @EndTime) 
+        
+        Print 'Total Tables loaded : ' +cast( @TableCount as varchar) + ' and it took exactly : ' + cast( @TableDuration as varchar) +  'seconds ' 
+
+        SET @startTime = GETDATE() 
+        TRUNCATE TABLE [Bronze].[crm_prd_info];
+        BULK INSERT [Bronze].[crm_prd_info] FROM 'E:\sql-data-warehouse-project\datasets\source_crm\prd_info.csv' WITH (FIRSTROW = 2, FIELDTERMINATOR = ',', TABLOCK);
+         SET @TableCount = @TableCount + 1 
+        SET @EndTime = getdate();
+         set @TableDuration = datediff(second , @startTime , @EndTime) 
+        
+        Print 'Total Tables loaded : ' +cast( @TableCount as varchar) + ' and it took exactly : ' + cast( @TableDuration as varchar) +  'seconds '
+
+        SET @startTime = GETDATE() 
+        TRUNCATE TABLE [Bronze].[crm_sales_details];
+        BULK INSERT [Bronze].[crm_sales_details] FROM 'E:\sql-data-warehouse-project\datasets\source_crm\sales_details.csv' WITH (FIRSTROW = 2, FIELDTERMINATOR = ',', TABLOCK);
+         SET @TableCount = @TableCount + 1 
+         SET @EndTime = getdate();
+          set @TableDuration = datediff(second , @startTime , @EndTime) 
+        
+        Print 'Total Tables loaded : ' +cast( @TableCount as varchar) + ' and it took exactly : ' + cast( @TableDuration as varchar) +  'seconds '
+        -- ERP Tables  
+        SET @startTime = GETDATE() 
+        TRUNCATE TABLE [Bronze].[erp_category];
+        BULK INSERT [Bronze].[erp_category] FROM 'E:\sql-data-warehouse-project\datasets\source_erp\PX_CAT_G1V2.csv' WITH (FIRSTROW = 2, FIELDTERMINATOR = ',', TABLOCK);
+         SET @TableCount = @TableCount + 1 
+          SET @EndTime = getdate();
+          set @TableDuration = datediff(second , @startTime , @EndTime) 
+           Print 'Total Tables loaded : ' +cast( @TableCount as varchar) + ' and it took exactly : ' + cast( @TableDuration as varchar) +  'seconds '
+        SET @startTime = GETDATE() 
+        TRUNCATE TABLE [Bronze].[erp_cust];
+        BULK INSERT [Bronze].[erp_cust] FROM 'E:\sql-data-warehouse-project\datasets\source_erp\CUST_AZ12.csv' WITH (FIRSTROW = 2, FIELDTERMINATOR = ',', TABLOCK);
+         SET @TableCount = @TableCount + 1 
+         SET @EndTime = getdate();
+          set @TableDuration = datediff(second , @startTime , @EndTime) 
+           Print 'Total Tables loaded : ' +cast( @TableCount as varchar) + ' and it took exactly : ' + cast( @TableDuration as varchar) +  'seconds '
+
+        SET @startTime = GETDATE() 
+        TRUNCATE TABLE [Bronze].[erp_loc];
+        BULK INSERT [Bronze].[erp_loc] FROM 'E:\sql-data-warehouse-project\datasets\source_erp\LOC_A101.csv' WITH (FIRSTROW = 2, FIELDTERMINATOR = ',', TABLOCK);
+         SET @TableCount = @TableCount + 1 
+         SET @EndTime = getdate();
+         SET @TableEndTime = getdate();
+
+          set @TableDuration = datediff(second , @startTime , @EndTime) 
+           Print 'Total Tables loaded : ' +cast( @TableCount as varchar) + ' and it took exactly : ' + cast( @TableDuration as varchar) +  'seconds '
+          print 'The Whole Bronze Level took Exactly: '+ cast(datediff(second , @TablestartTime ,@TableEndTime)as varchar)   +'Seconds'
+     End try 
+
+       BEGIN CATCH
+       
+        PRINT 'Error loading Bronze tables: ' + cast(ERROR_MESSAGE() as nvarchar);
+    END CATCH
+END
+GO
+
+
 
