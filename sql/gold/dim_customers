@@ -1,1 +1,65 @@
+-- dim_customers.sql
+-- Gold layer customer dimension view
+-- Combines CRM customer data with ERP demographic data
 
+CREATE OR ALTER VIEW Gold.dim_customers AS
+
+SELECT
+    -- Surrogate key for dimension
+    ROW_NUMBER() OVER (ORDER BY ci.cst_id) AS id,
+    
+    -- Business keys
+    ci.cst_id AS customer_id,
+    ci.cst_key AS customer_key,
+    
+    -- Customer name
+    CONCAT(TRIM(ci.cst_firstname), ' ', TRIM(ci.cst_lastname)) AS customer_name,
+    
+    -- Demographic info
+    ci.cst_marital_status AS marital_status,
+    
+    -- Gender (CRM priority, fallback to ERP)
+    CASE 
+        WHEN ci.cst_gndr != 'N/a' THEN ci.cst_gndr
+        ELSE COALESCE(c.GEN, 'N/a')
+    END AS gender,
+    
+    -- Dates
+    ci.cst_create_date AS create_date,
+    c.BDATE AS birthdate,
+    
+    -- Location
+    l.CNTRY AS country,
+    
+    -- Calculated age
+    CASE 
+        WHEN c.BDATE IS NOT NULL 
+            AND c.BDATE <= GETDATE()
+            AND c.BDATE >= '1900-01-01'
+        THEN DATEDIFF(YEAR, c.BDATE, GETDATE()) -
+             CASE 
+                 WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.BDATE, GETDATE()), c.BDATE) > GETDATE()
+                 THEN 1 
+                 ELSE 0 
+             END
+        ELSE NULL
+    END AS age,
+    
+    -- Age groups
+    CASE 
+        WHEN c.BDATE IS NOT NULL THEN
+            CASE 
+                WHEN DATEDIFF(YEAR, c.BDATE, GETDATE()) BETWEEN 0 AND 17 THEN '0-17'
+                WHEN DATEDIFF(YEAR, c.BDATE, GETDATE()) BETWEEN 18 AND 25 THEN '18-25'
+                WHEN DATEDIFF(YEAR, c.BDATE, GETDATE()) BETWEEN 26 AND 35 THEN '26-35'
+                WHEN DATEDIFF(YEAR, c.BDATE, GETDATE()) BETWEEN 36 AND 50 THEN '36-50'
+                WHEN DATEDIFF(YEAR, c.BDATE, GETDATE()) BETWEEN 51 AND 65 THEN '51-65'
+                WHEN DATEDIFF(YEAR, c.BDATE, GETDATE()) > 65 THEN '65+'
+                ELSE 'Unknown'
+            END
+        ELSE 'Unknown'
+    END AS age_group
+
+FROM Silver.crm_cust_info ci
+LEFT JOIN Silver.erp_cust c ON c.CID = ci.cst_key
+LEFT JOIN Silver.erp_loc l ON l.CID = ci.cst_key;
