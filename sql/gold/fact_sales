@@ -1,1 +1,96 @@
+```sql
+-- fact_sales.sql
+-- Gold layer sales fact table
+-- Sales transactions with profit calculations and categorizations
 
+CREATE OR ALTER VIEW Gold.fact_sales AS
+
+SELECT
+    -- Order identifiers
+    s.sls_ord_num AS order_number,
+    s.sls_prd_key AS product_key,
+    s.sls_cust_id AS customer_id,
+    
+    -- Dates
+    s.sls_order_dt AS order_date,
+    s.sls_ship_dt AS ship_date,
+    s.sls_due_dt AS due_date,
+    
+    -- Sales measures
+    s.sls_quantity AS quantity,
+    s.sls_price AS unit_price,
+    s.sls_sales AS sales_amount,
+    
+    -- Profit calculations
+    p.prd_cost AS product_cost,
+    (s.sls_price - p.prd_cost) * s.sls_quantity AS profit_amount,
+    
+    -- Profit margin
+    CASE 
+        WHEN s.sls_price > 0 THEN 
+            ((s.sls_price - p.prd_cost) / s.sls_price) * 100
+        ELSE 0
+    END AS profit_margin_percent,
+    
+    -- Order size category
+    CASE 
+        WHEN s.sls_quantity = 1 THEN 'Single Unit'
+        WHEN s.sls_quantity BETWEEN 2 AND 5 THEN 'Small (2-5 units)'
+        WHEN s.sls_quantity BETWEEN 6 AND 10 THEN 'Medium (6-10 units)'
+        WHEN s.sls_quantity > 10 THEN 'Bulk (>10 units)'
+        ELSE 'Other'
+    END AS order_size_category,
+    
+    -- Sale size category
+    CASE 
+        WHEN s.sls_sales < 50 THEN 'Small Sale (<$50)'
+        WHEN s.sls_sales BETWEEN 50 AND 200 THEN 'Medium Sale ($50-$200)'
+        WHEN s.sls_sales BETWEEN 201 AND 500 THEN 'Large Sale ($201-$500)'
+        WHEN s.sls_sales > 500 THEN 'Premium Sale (>$500)'
+        ELSE 'Other'
+    END AS sale_size_category,
+    
+    -- Profitability category
+    CASE 
+        WHEN (s.sls_price - p.prd_cost) <= 0 THEN 'Loss'
+        WHEN ((s.sls_price - p.prd_cost) / s.sls_price) * 100 < 10 THEN 'Low Margin (<10%)'
+        WHEN ((s.sls_price - p.prd_cost) / s.sls_price) * 100 < 30 THEN 'Medium Margin (10-30%)'
+        WHEN ((s.sls_price - p.prd_cost) / s.sls_price) * 100 < 50 THEN 'High Margin (30-50%)'
+        ELSE 'Premium Margin (>50%)'
+    END AS profitability_category,
+    
+    -- Shipping speed
+    CASE 
+        WHEN DATEDIFF(DAY, s.sls_order_dt, s.sls_ship_dt) <= 1 THEN 'Express (1 day)'
+        WHEN DATEDIFF(DAY, s.sls_order_dt, s.sls_ship_dt) BETWEEN 2 AND 3 THEN 'Fast (2-3 days)'
+        WHEN DATEDIFF(DAY, s.sls_order_dt, s.sls_ship_dt) BETWEEN 4 AND 7 THEN 'Standard (4-7 days)'
+        WHEN DATEDIFF(DAY, s.sls_order_dt, s.sls_ship_dt) > 7 THEN 'Slow (>7 days)'
+        ELSE 'Unknown'
+    END AS shipping_speed_category,
+    
+    -- Price tier
+    CASE 
+        WHEN s.sls_price < 100 THEN 'Budget (<$100)'
+        WHEN s.sls_price BETWEEN 100 AND 300 THEN 'Standard ($100-$300)'
+        WHEN s.sls_price BETWEEN 301 AND 600 THEN 'Premium ($301-$600)'
+        WHEN s.sls_price > 600 THEN 'Luxury (>$600)'
+        ELSE 'Other'
+    END AS price_tier_category,
+    
+    -- Product info
+    p.prd_nm AS product_name,
+    p.prd_line AS product_line,
+    
+    -- Customer info
+    CONCAT(c.cst_firstname, ' ', c.cst_lastname) AS customer_name,
+    
+    -- Calculated metrics
+    DATEDIFF(DAY, s.sls_order_dt, s.sls_ship_dt) AS shipping_days,
+    DATEDIFF(DAY, s.sls_ship_dt, s.sls_due_dt) AS delivery_window_days
+
+FROM Silver.crm_sales_details s
+LEFT JOIN Silver.crm_prd_info p ON p.prd_key = s.sls_prd_key
+LEFT JOIN Silver.crm_cust_info c ON c.cst_id = s.sls_cust_id
+WHERE s.sls_quantity > 0
+  AND s.sls_price > 0;
+```
