@@ -1,1 +1,88 @@
+-- dim_products.sql
+-- Gold layer product dimension view
+-- Product catalog with categorizations for analytics
 
+CREATE OR ALTER VIEW Gold.dim_products AS
+
+SELECT 
+    -- surrogate key
+    row_number()over(order by prd_id) Id , 
+    -- Product identifiers
+    prd_id AS product_id,
+    prd_key AS product_key,
+    prd_nm AS product_name,
+    
+    -- Product categorization
+    prd_line AS product_line,
+    
+    -- Product line description
+    CASE 
+        WHEN UPPER(prd_line) = 'MOUNTAIN' THEN 'Mountain Bikes'
+        WHEN UPPER(prd_line) = 'ROAD' THEN 'Road Bikes'
+        WHEN UPPER(prd_line) = 'TOURING' THEN 'Touring Bikes'
+        WHEN UPPER(prd_line) = 'OTHER SALES' THEN 'Accessories & Parts'
+        ELSE 'Other'
+    END AS product_line_description,
+    
+    -- Category info
+    cat_id AS category_id,
+    
+    CASE 
+        WHEN cat_id LIKE 'BK%' THEN 'Bikes'
+        WHEN cat_id LIKE 'AC%' THEN 'Accessories'
+        WHEN cat_id LIKE 'CL%' THEN 'Clothing'
+        WHEN cat_id LIKE 'PT%' THEN 'Parts'
+        ELSE 'Other'
+    END AS category_name,
+    
+    -- Product type from name
+    CASE 
+        WHEN prd_nm LIKE '%Bike%' THEN 'Bicycle'
+        WHEN prd_nm LIKE '%Helmet%' THEN 'Safety Gear'
+        WHEN prd_nm LIKE '%Tire%' THEN 'Replacement Part'
+        WHEN prd_nm LIKE '%Jersey%' OR prd_nm LIKE '%Short%' THEN 'Apparel'
+        WHEN prd_nm LIKE '%Tool%' THEN 'Maintenance'
+        ELSE 'Other'
+    END AS product_type,
+    
+    -- Pricing
+    prd_cost AS product_cost,
+    
+    -- Cost tier
+    CASE 
+        WHEN prd_cost < 50 THEN 'Low Cost (<$50)'
+        WHEN prd_cost BETWEEN 50 AND 200 THEN 'Medium Cost ($50-$200)'
+        WHEN prd_cost BETWEEN 201 AND 500 THEN 'High Cost ($201-$500)'
+        WHEN prd_cost > 500 THEN 'Premium Cost (>$500)'
+        ELSE 'Cost Not Available'
+    END AS cost_tier,
+    
+    -- Lifecycle stage
+    CASE 
+        WHEN DATEDIFF(MONTH, prd_start_dt, GETDATE()) < 3 THEN 'New (<3 months)'
+        WHEN DATEDIFF(MONTH, prd_start_dt, GETDATE()) BETWEEN 3 AND 12 THEN 'Growth (3-12 months)'
+        WHEN DATEDIFF(MONTH, prd_start_dt, GETDATE()) BETWEEN 13 AND 36 THEN 'Mature (1-3 years)'
+        WHEN DATEDIFF(MONTH, prd_start_dt, GETDATE()) > 36 THEN 'Legacy (>3 years)'
+        ELSE 'Unknown'
+    END AS lifecycle_stage,
+    
+    -- Analytics fields
+    LEN(prd_nm) AS product_name_length,
+    
+    -- Business classifications
+    CASE 
+        WHEN prd_cost < 100 THEN 'Mass Market'
+        WHEN prd_cost BETWEEN 100 AND 300 THEN 'Mid-Range'
+        WHEN prd_cost BETWEEN 301 AND 600 THEN 'Premium'
+        WHEN prd_cost > 600 THEN 'Luxury'
+        ELSE 'Unclassified'
+    END AS market_segment,
+    
+    -- Seasonality
+    CASE 
+        WHEN UPPER(prd_line) IN ('MOUNTAIN', 'ROAD') THEN 'Year-Round'
+        WHEN UPPER(prd_line) = 'TOURING' THEN 'Seasonal (Summer)'
+        ELSE 'Non-Seasonal'
+    END AS seasonality
+
+FROM Silver.crm_prd_info;
