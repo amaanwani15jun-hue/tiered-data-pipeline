@@ -28,10 +28,10 @@ SELECT
     cat_id AS category_id,
     
     CASE 
-        WHEN cat_id LIKE 'BK%' THEN 'Bikes'
+        WHEN cat_id LIKE 'Bi%' THEN 'Bikes'
         WHEN cat_id LIKE 'AC%' THEN 'Accessories'
         WHEN cat_id LIKE 'CL%' THEN 'Clothing'
-        WHEN cat_id LIKE 'PT%' THEN 'Parts'
+        WHEN cat_id LIKE 'Pa%' THEN 'Parts'
         ELSE 'Other'
     END AS category_name,
     
