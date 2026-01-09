@@ -1,0 +1,35 @@
+-- =====================================================================
+-- ESSENTIAL SILVER LAYER INDEXES FOR PERFORMANCE OPTIMIZATION
+-- =====================================================================
+
+-- 1. CRM_SALES_DETAILS TABLE (Most Critical)
+CREATE INDEX idx_sls_date ON Silver.crm_sales_details(sls_order_dt, sls_ship_dt);
+CREATE INDEX idx_sls_customer ON Silver.crm_sales_details(sls_cust_id) 
+    INCLUDE (sls_order_dt, sls_sales, sls_quantity);
+CREATE INDEX idx_sls_product ON Silver.crm_sales_details(sls_prd_key) 
+    INCLUDE (sls_order_dt, sls_sales, sls_quantity, sls_price);
+CREATE INDEX idx_sls_analytics ON Silver.crm_sales_details(sls_cust_id, sls_prd_key, sls_order_dt) 
+    INCLUDE (sls_sales, sls_quantity, sls_price);
+
+-- 2. CRM_CUST_INFO TABLE
+CREATE UNIQUE INDEX idx_cst_id ON Silver.crm_cust_info(cst_id);
+CREATE INDEX idx_cst_demographics ON Silver.crm_cust_info(cst_gndr, cst_create_date);
+
+-- 3. CRM_PRD_INFO TABLE
+CREATE UNIQUE INDEX idx_prd_id ON Silver.crm_prd_info(prd_id);
+CREATE INDEX idx_prd_category ON Silver.crm_prd_info(cat_id, prd_line) 
+    INCLUDE (prd_nm, prd_cost);
+CREATE INDEX idx_prd_cost ON Silver.crm_prd_info(prd_cost) 
+    INCLUDE (prd_nm, prd_line, cat_id);
+
+-- 4. ERP_CATEGORY TABLE
+CREATE UNIQUE INDEX idx_erp_cat_id ON Silver.erp_category(ID);
+CREATE INDEX idx_erp_cat_group ON Silver.erp_category(cat, subcat);
+
+-- 5. ERP_CUST TABLE
+CREATE UNIQUE INDEX idx_erp_cid ON Silver.erp_cust(cid);
+CREATE INDEX idx_erp_cust_demo ON Silver.erp_cust(gen, bdate);
+
+-- 6. ERP_LOC TABLE
+CREATE UNIQUE INDEX idx_erp_loc_cid ON Silver.erp_loc(cid);
+CREATE INDEX idx_erp_loc_country ON Silver.erp_loc(CNTRY);
