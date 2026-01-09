@@ -1,0 +1,35 @@
+-- simple_setup.sql
+-- Creates database and schemas only
+
+-- Create database if it doesn't exist
+IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'DataWarehouse')
+BEGIN
+    CREATE DATABASE DataWarehouse;
+    PRINT 'Database DataWarehouse created.';
+END
+ELSE
+BEGIN
+    PRINT 'Database DataWarehouse already exists.';
+END
+GO
+
+USE DataWarehouse;
+GO
+
+-- Create Bronze schema
+IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'Bronze')
+    EXEC('CREATE SCHEMA Bronze');
+GO
+
+-- Create Silver schema  
+IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'Silver')
+    EXEC('CREATE SCHEMA Silver');
+GO
+
+-- Create Gold schema
+IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'Gold')
+    EXEC('CREATE SCHEMA Gold');
+GO
+
+PRINT 'All schemas created: Bronze, Silver, Gold';
+GO
