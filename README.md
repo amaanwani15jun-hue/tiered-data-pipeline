@@ -257,5 +257,4 @@ Email: amaanwani15jun@gmail.com
 5. **Test with Real Data**: Synthetic data doesn't catch all edge cases
 
 ---
-
-**Built by hand with SQL Server, late nights debugging date formats, and plenty of coffee.** ☕
+Thanks. 
