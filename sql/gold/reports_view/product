@@ -1,0 +1,199 @@
+-- ===============================================================
+-- Gold.Product_Report_View
+-- Purpose: Comprehensive product analytics and performance view
+-- ===============================================================
+CREATE OR ALTER VIEW Gold.Product_Report AS
+WITH product_transactions AS (
+    
+    SELECT 
+        p.product_key,
+        p.product_name,
+        p.category_name,
+        p.product_line,
+        p.product_cost,
+        p.market_segment,
+        f.order_date,
+        f.order_number,
+        f.customer_id,
+        f.sales_amount,
+        f.profit_amount,
+        f.quantity,
+        f.unit_price,
+        f.profit_margin_percent
+    FROM Gold.dim_products p
+    JOIN Gold.fact_sales f ON p.product_key = f.product_key
+    WHERE f.order_date IS NOT NULL
+),
+product_aggregates AS (
+    -- Aggregate everything at the product level
+    SELECT 
+        product_key,
+        product_name,
+        category_name,
+        product_line,
+        product_cost,
+        market_segment,
+     
+        COUNT(DISTINCT order_number) AS total_orders,
+        COUNT(DISTINCT customer_id) AS total_unique_customers,
+      
+        SUM(sales_amount) AS total_sales,
+        SUM(profit_amount) AS total_profit,
+        SUM(quantity) AS total_quantity_sold,
+     
+        AVG(unit_price) AS avg_unit_price,
+        AVG(profit_margin_percent) AS avg_profit_margin_pct,
+       
+        MIN(order_date) AS first_sale_date,
+        MAX(order_date) AS last_sale_date,
+        -- Calculate product lifespan in months
+        DATEDIFF(MONTH, MIN(order_date), MAX(order_date)) AS product_lifespan_months
+    FROM product_transactions
+    GROUP BY 
+        product_key, product_name, category_name, product_line,
+        product_cost, market_segment
+),
+product_kpis AS (
+
+    SELECT 
+        pa.*,
+        -- Recency: Months since last sale
+        DATEDIFF(MONTH, pa.last_sale_date, GETDATE()) AS months_since_last_sale,
+        -- Aor
+        CASE 
+            WHEN pa.total_orders > 0 
+            THEN ROUND(pa.total_sales * 1.0 / pa.total_orders, 2)
+            ELSE 0
+        END AS avg_order_revenue,
+        -- Amr
+        CASE 
+            WHEN pa.product_lifespan_months > 0 
+            THEN ROUND(pa.total_sales * 1.0 / pa.product_lifespan_months, 2)
+            ELSE pa.total_sales 
+        END AS avg_monthly_revenue,
+       
+        CASE 
+            WHEN pa.total_orders > 0 
+            THEN ROUND(pa.total_quantity_sold * 1.0 / pa.total_orders, 2)
+            ELSE 0
+        END AS avg_quantity_per_order,
+        
+        CASE 
+            WHEN pa.total_unique_customers > 0 AND pa.total_orders > 0
+            THEN ROUND(pa.total_orders * 1.0 / pa.total_unique_customers, 2)
+            ELSE 0
+        END AS avg_orders_per_customer,
+        
+        CASE 
+            WHEN pa.product_cost > 0 
+            THEN ROUND((pa.avg_unit_price - pa.product_cost) * 100.0 / pa.product_cost, 2)
+            ELSE NULL
+        END AS markup_percentage,
+       
+        CASE 
+            WHEN pa.total_quantity_sold > 0 
+            THEN ROUND(pa.total_profit * 1.0 / pa.total_quantity_sold, 2)
+            ELSE 0
+        END AS profit_per_unit
+    FROM product_aggregates pa
+)
+SELECT 
+   
+    product_key,
+    product_name,
+    category_name,
+    product_line,
+    market_segment,
+    
+    -- Cost Information
+    product_cost,
+    avg_unit_price,
+    markup_percentage,
+    
+    -- Sales History
+    first_sale_date,
+    last_sale_date,
+    total_orders,
+    total_unique_customers,
+    total_quantity_sold,
+    
+    -- Financial info
+    total_sales,
+    total_profit,
+    avg_profit_margin_pct,
+    profit_per_unit,
+    avg_order_revenue,
+    avg_monthly_revenue,
+    
+    -- Behavioral KPIs
+    product_lifespan_months,
+    months_since_last_sale,
+    avg_quantity_per_order,
+    avg_orders_per_customer,
+    
+    -- Performance Segmentation
+    CASE 
+        WHEN total_sales > 10000 THEN 'High-Performer'
+        WHEN total_sales > 5000 THEN 'Mid-Range'
+        WHEN total_sales > 1000 THEN 'Low-Performer'
+        ELSE 'Underperformer'
+    END AS revenue_segment,
+    
+    CASE 
+        WHEN avg_profit_margin_pct > 30 THEN 'High Margin'
+        WHEN avg_profit_margin_pct > 15 THEN 'Medium Margin'
+        WHEN avg_profit_margin_pct > 0 THEN 'Low Margin'
+        ELSE 'Loss Making'
+    END AS margin_segment,
+    
+    CASE 
+        WHEN months_since_last_sale <= 1 THEN 'High Demand'
+        WHEN months_since_last_sale <= 3 THEN 'Regular Demand'
+        WHEN months_since_last_sale <= 6 THEN 'Seasonal'
+        WHEN months_since_last_sale <= 12 THEN 'Occasional'
+        ELSE 'Discontinued'
+    END AS demand_segment,
+    
+    -- Product  Classification
+    CASE 
+        WHEN total_sales > 10000 AND avg_profit_margin_pct > 20 THEN 'Premium'
+        WHEN total_sales > 5000 AND avg_profit_margin_pct > 10 THEN 'Standard'
+        WHEN total_sales > 0 THEN 'Basic'
+        ELSE 'Inactive'
+    END AS product_tier,
+    
+    -- Inventory Recommendation
+    CASE 
+        WHEN months_since_last_sale <= 1 AND avg_monthly_revenue > 1000 THEN 'High Stock'
+        WHEN months_since_last_sale <= 3 AND avg_monthly_revenue > 500 THEN 'Medium Stock'
+        WHEN months_since_last_sale <= 6 THEN 'Low Stock'
+        ELSE 'Minimal Stock'
+    END AS inventory_recommendation,
+    
+    -- Growth Potential Indicator
+    CASE 
+        WHEN months_since_last_sale <= 3 AND avg_monthly_revenue > 500 THEN 'High Growth'
+        WHEN months_since_last_sale <= 6 AND avg_profit_margin_pct > 20 THEN 'Medium Growth'
+        WHEN months_since_last_sale <= 12 THEN 'Stable'
+        ELSE 'Declining'
+    END AS growth_potential,
+    
+    -- Product Health Score (1-10)
+    CASE 
+        WHEN months_since_last_sale <= 1 AND avg_monthly_revenue > 1000 AND avg_profit_margin_pct > 25 THEN 10
+        WHEN months_since_last_sale <= 3 AND avg_monthly_revenue > 500 AND avg_profit_margin_pct > 15 THEN 8
+        WHEN months_since_last_sale <= 6 AND total_sales > 1000 THEN 6
+        WHEN months_since_last_sale <= 12 THEN 4
+        ELSE 2
+    END AS product_health_score,
+    
+    -- Sales Velocity (quantity per month)
+    CASE 
+        WHEN product_lifespan_months > 0 
+        THEN ROUND(total_quantity_sold * 1.0 / product_lifespan_months, 2)
+        ELSE total_quantity_sold
+    END AS sales_velocity
+    
+FROM product_kpis
+WHERE total_orders > 0  -- Only include products with sales
+GO
