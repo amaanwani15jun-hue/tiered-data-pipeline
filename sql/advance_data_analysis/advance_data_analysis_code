@@ -1,0 +1,441 @@
+-- 1. TOTAL SALES PER MONTH WITH RUNNING TOTAL
+WITH monthly_sales AS (
+    SELECT 
+        FORMAT(order_date, 'yyyy-MMM') AS year_month,
+        YEAR(order_date) AS year,
+        MONTH(order_date) AS month,
+        SUM(sales_amount) AS total_sales,
+        COUNT(DISTINCT order_number) AS total_orders,
+        SUM(quantity) AS total_units_sold
+    FROM Gold.fact_sales
+    WHERE order_date IS NOT NULL  
+    GROUP BY YEAR(order_date), MONTH(order_date), FORMAT(order_date, 'yyyy-MMM')
+)
+SELECT 
+    year_month,
+    year,
+    month,
+    total_sales,
+    total_orders,
+    total_units_sold,
+  
+    SUM(total_sales) OVER (ORDER BY year, month ) AS running_total_sales,
+    
+    SUM(total_orders) OVER (ORDER BY year, month ) AS running_total_orders,
+   
+    LAG(total_sales) OVER (ORDER BY year, month) AS prev_month_sales,
+    CASE 
+        WHEN LAG(total_sales) OVER (ORDER BY year, month) = 0 THEN NULL
+        ELSE ROUND(
+        CAST(total_sales - LAG(total_sales) OVER (ORDER BY year, month) AS FLOAT) 
+        / NULLIF(LAG(total_sales) OVER (ORDER BY year, month), 0) 
+        * 100.0, 
+    2) end as growth_percentage
+FROM monthly_sales
+ORDER BY year , month ;
+
+
+
+-- 2. YEARLY PRODUCT PERFORMANCE COMPARISON 
+WITH yearly_product_sales AS (
+   
+    SELECT 
+        p.product_key,
+        p.product_name,
+        p.category_name,
+        p.product_line,
+        YEAR(f.order_date) AS sales_year,
+        SUM(f.sales_amount) AS yearly_sales,
+        SUM(f.quantity) AS yearly_quantity,
+        SUM(f.profit_amount) AS yearly_profit,
+        COUNT(DISTINCT f.order_number) AS order_count
+    FROM Gold.fact_sales f
+    JOIN Gold.dim_products p ON f.product_key = p.product_key
+    WHERE f.order_date IS NOT NULL  
+    GROUP BY p.product_key, p.product_name, p.category_name, p.product_line, YEAR(f.order_date)
+),
+product_avg_performance AS (
+ 
+    SELECT 
+        product_key,
+        AVG(CAST(yearly_sales AS DECIMAL(18,2))) AS avg_yearly_sales,
+        AVG(CAST(yearly_quantity AS DECIMAL(18,2))) AS avg_yearly_quantity,
+        AVG(CAST(yearly_profit AS DECIMAL(18,2))) AS avg_yearly_profit
+    FROM yearly_product_sales
+    GROUP BY product_key
+)
+SELECT 
+    yps.product_name,
+    yps.category_name,
+    yps.sales_year,
+    yps.yearly_sales,
+    yps.yearly_profit,
+    
+    pap.avg_yearly_sales,
+    CASE 
+        WHEN pap.avg_yearly_sales = 0 THEN NULL
+        ELSE (yps.yearly_sales - pap.avg_yearly_sales)
+    END AS vs_avg_sales,
+    -- Compare with previous year (using LAG window function)
+    LAG(yps.yearly_sales) OVER (PARTITION BY yps.product_key ORDER BY yps.sales_year) AS prev_year_sales,
+    CASE 
+        WHEN LAG(yps.yearly_sales) OVER (PARTITION BY yps.product_key ORDER BY yps.sales_year) = 0 THEN NULL
+        ELSE ROUND((yps.yearly_sales - LAG(yps.yearly_sales) OVER (PARTITION BY yps.product_key ORDER BY yps.sales_year)) * 100 
+              / LAG(yps.yearly_sales) OVER (PARTITION BY yps.product_key ORDER BY yps.sales_year) , 2)
+    END AS yoy_growth_pct
+FROM yearly_product_sales yps
+JOIN product_avg_performance pap ON yps.product_key = pap.product_key
+WHERE yps.yearly_sales > 0 
+ORDER BY yps.product_name, yps.sales_year ;
+
+
+
+
+
+-- 3. CATEGORY CONTRIBUTION ANALYSIS
+WITH category_summary AS (
+    SELECT 
+        p.category_name,
+        COUNT(DISTINCT f.order_number) AS order_count,
+        SUM(f.quantity) AS total_units_sold,
+        SUM(f.sales_amount) AS category_sales,
+        SUM(f.profit_amount) AS category_profit
+    FROM Gold.fact_sales f
+    JOIN Gold.dim_products p ON f.product_key = p.product_key
+    GROUP BY p.category_name
+)
+SELECT 
+    category_name,
+    order_count,
+    total_units_sold,
+    category_sales,
+    SUM(category_sales) OVER() AS total_sales,
+    CASE 
+        WHEN SUM(category_sales) OVER() = 0 THEN 0
+        ELSE ROUND(category_sales * 100.0 / SUM(category_sales) OVER(), 2)
+    END AS sales_contribution_pct,
+    
+    category_profit,
+    SUM(category_profit) OVER() AS total_profit,
+    CASE 
+        WHEN SUM(category_profit) OVER() = 0 THEN 0
+        ELSE ROUND(category_profit * 100.0 / SUM(category_profit) OVER(), 2)
+    END AS profit_contribution_pct
+    
+   
+FROM category_summary
+ORDER BY sales_contribution_pct DESC;
+
+
+-- 4. PRODUCT COST SEGMENTATION
+WITH product_sales_summary AS (
+    SELECT 
+        p.product_key,
+        p.product_name,
+        p.category_name,
+        p.product_line,
+        p.product_cost,
+        COUNT(DISTINCT f.order_number) AS sales_count,
+        SUM(f.sales_amount) AS total_sales,
+        SUM(f.quantity) AS total_quantity,
+        AVG(f.unit_price) AS avg_unit_price
+    FROM Gold.dim_products p
+    LEFT JOIN Gold.fact_sales f ON p.product_key = f.product_key
+    GROUP BY p.product_key, p.product_name, p.category_name, p.product_line, p.product_cost
+),
+product_cost_segments AS (
+    SELECT 
+        product_name,
+        category_name,
+        product_line,
+        product_cost,
+        sales_count,
+        total_sales,
+        total_quantity,
+        avg_unit_price,
+        CASE 
+            WHEN product_cost < 100 THEN 'Low Cost (< €100)'
+            WHEN product_cost BETWEEN 100 AND 300 THEN 'Medium Cost (€100-€300)'
+            WHEN product_cost BETWEEN 301 AND 600 THEN 'High Cost (€301-€600)'
+            ELSE 'Premium Cost (> €600)'
+        END AS cost_segment
+    FROM product_sales_summary
+),
+segment_summary AS (
+    SELECT 
+        cost_segment,
+        COUNT(*) AS product_count,
+        ROUND(AVG(product_cost), 2) AS avg_product_cost,
+        MIN(product_cost) AS min_cost,
+        MAX(product_cost) AS max_cost,
+        SUM(total_sales) AS segment_total_sales
+    FROM product_cost_segments
+    GROUP BY cost_segment
+)
+SELECT 
+    cost_segment,
+    product_count,
+    avg_product_cost,
+    min_cost,
+    max_cost,
+    segment_total_sales,
+    ROUND(segment_total_sales * 100.0 / NULLIF(SUM(segment_total_sales) OVER(), 0), 2) AS revenue_contribution_pct
+FROM segment_summary
+ORDER BY 
+    CASE cost_segment 
+        WHEN 'Low Cost (< €100)' THEN 1
+        WHEN 'Medium Cost (€100-€300)' THEN 2
+        WHEN 'High Cost (€301-€600)' THEN 3
+        ELSE 4
+    END;
+
+
+
+-- 5. CUSTOMER SEGMENTATION BY SPENDING BEHAVIOR
+WITH customer_transactions AS (
+    SELECT 
+        c.customer_id,
+        c.customer_name,
+        c.country,
+        c.age_group,
+        MIN(f.order_date) AS first_purchase_date,
+        MAX(f.order_date) AS last_purchase_date,
+        COUNT(DISTINCT f.order_number) AS total_orders,
+        SUM(f.sales_amount) AS total_spent,
+        SUM(f.profit_amount) AS total_profit
+    FROM Gold.fact_sales f
+    JOIN Gold.dim_customers c ON f.customer_id = c.customer_id
+    WHERE f.order_date IS NOT NULL  
+    GROUP BY c.customer_id, c.customer_name, c.country, c.age_group
+),
+customer_lifetime AS (
+    SELECT 
+        *,
+       
+        DATEDIFF(MONTH, first_purchase_date, last_purchase_date) AS customer_lifetime_months,
+    
+        CASE 
+            WHEN total_orders = 0 THEN 0
+            ELSE ROUND(total_spent * 1.0 / total_orders, 2)
+        END AS avg_order_value
+    FROM customer_transactions
+),
+customer_segmented AS (
+    SELECT 
+        *,
+
+        CASE 
+            WHEN customer_lifetime_months < 12 THEN 'New'
+            WHEN customer_lifetime_months >= 12 AND total_spent > 5000 THEN 'VIP'
+            WHEN customer_lifetime_months >= 12 AND total_spent <= 5000 THEN 'Regular'
+            ELSE 'Other'
+        END AS customer_segment,
+       
+        CASE 
+            WHEN customer_lifetime_months = 0 THEN total_spent
+            ELSE ROUND(total_spent * 1.0 / customer_lifetime_months, 2)
+        END AS monthly_spending
+    FROM customer_lifetime
+)
+SELECT 
+    customer_segment,
+    COUNT(*) AS customer_count,
+    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) AS segment_percentage,
+    ROUND(AVG(total_spent), 2) AS avg_total_spent,
+    ROUND(AVG(total_orders), 2) AS avg_orders_per_customer,
+    ROUND(AVG(customer_lifetime_months), 2) AS avg_lifetime_months,
+    ROUND(AVG(avg_order_value), 2) AS avg_order_value,
+    ROUND(AVG(monthly_spending), 2) AS avg_monthly_spending,
+    SUM(total_spent) AS segment_total_revenue,
+    SUM(total_profit) AS segment_total_profit,
+    CASE 
+        WHEN SUM(total_spent) = 0 THEN 0
+        ELSE ROUND(SUM(total_profit) * 100.0 / SUM(total_spent), 2)
+    END AS segment_profit_margin
+FROM customer_segmented
+GROUP BY customer_segment
+ORDER BY 
+    CASE customer_segment 
+        WHEN 'VIP' THEN 1
+        WHEN 'Regular' THEN 2
+        WHEN 'New' THEN 3
+        ELSE 4
+    END;
+
+
+-- 6. ROLLING 3-MONTH AVERAGE & TREND ANALYSIS
+WITH monthly_sales AS (
+    SELECT 
+        YEAR(order_date) AS sales_year,
+        MONTH(order_date) AS sales_month,
+        FORMAT(order_date, 'yyyy-MM') AS year_month,
+        SUM(sales_amount) AS monthly_sales,
+        SUM(profit_amount) AS monthly_profit,
+        COUNT(DISTINCT order_number) AS monthly_orders,
+        COUNT(DISTINCT customer_id) AS monthly_customers
+    FROM Gold.fact_sales
+    WHERE order_date IS NOT NULL
+    GROUP BY YEAR(order_date), MONTH(order_date), FORMAT(order_date, 'yyyy-MM')
+),
+monthly_with_rolling AS (
+    SELECT 
+        year_month,
+        sales_year,
+        sales_month,
+        monthly_sales,
+        monthly_profit,
+        monthly_orders,
+        monthly_customers,
+        
+        ROUND(AVG(monthly_sales) OVER (
+            ORDER BY sales_year, sales_month 
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ), 2) AS rolling_3m_avg_sales,
+      
+        ROUND(AVG(monthly_profit) OVER (
+            ORDER BY sales_year, sales_month 
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ), 2) AS rolling_3m_avg_profit
+    FROM monthly_sales
+),
+monthly_with_yoy AS (
+    SELECT 
+        mwr.*,
+       
+        LAG(monthly_sales, 12) OVER (ORDER BY sales_year, sales_month) AS sales_same_month_last_year,
+        LAG(monthly_profit, 12) OVER (ORDER BY sales_year, sales_month) AS profit_same_month_last_year
+    FROM monthly_with_rolling mwr
+)
+SELECT 
+    year_month,
+    sales_year,
+    sales_month,
+    monthly_sales,
+    monthly_profit,
+    monthly_orders,
+    monthly_customers,
+    rolling_3m_avg_sales,
+    rolling_3m_avg_profit,
+    sales_same_month_last_year,
+    profit_same_month_last_year,
+   
+    CASE 
+        WHEN sales_same_month_last_year = 0 THEN NULL
+        ELSE ROUND((monthly_sales - sales_same_month_last_year) * 100.0 / sales_same_month_last_year, 2)
+    END AS yoy_sales_growth_pct,
+   
+    CASE 
+        WHEN profit_same_month_last_year = 0 THEN NULL
+        ELSE ROUND((monthly_profit - profit_same_month_last_year) * 100.0 / profit_same_month_last_year, 2)
+    END AS yoy_profit_growth_pct,
+   
+    CASE 
+        WHEN rolling_3m_avg_sales IS NULL THEN 'Insufficient Data'
+        WHEN monthly_sales > rolling_3m_avg_sales THEN 'Above Trend'
+        WHEN monthly_sales < rolling_3m_avg_sales THEN 'Below Trend'
+        ELSE 'On Trend'
+    END AS sales_trend_direction,
+   
+    CASE 
+        WHEN rolling_3m_avg_profit IS NULL THEN 'Insufficient Data'
+        WHEN monthly_profit > rolling_3m_avg_profit THEN 'Above Trend'
+        WHEN monthly_profit < rolling_3m_avg_profit THEN 'Below Trend'
+        ELSE 'On Trend'
+    END AS profit_trend_direction
+FROM monthly_with_yoy
+ORDER BY sales_year DESC, sales_month DESC;
+
+
+
+-- 7. PRODUCT PERFORMANCE QUARTILE ANALYSIS
+WITH product_performance AS (
+    SELECT 
+        p.product_key,
+        p.product_name,
+        p.category_name,
+        COUNT(DISTINCT f.order_number) AS order_count,
+        SUM(f.quantity) AS total_units_sold,
+        SUM(f.sales_amount) AS total_revenue,
+        SUM(f.profit_amount) AS total_profit,
+        ROUND(AVG(f.profit_margin_percent), 2) AS avg_margin_percent,
+        COUNT(DISTINCT f.customer_id) AS unique_customers,
+        -- Calculate additional metrics
+        CASE 
+            WHEN COUNT(DISTINCT f.order_number) = 0 THEN 0
+            ELSE ROUND(SUM(f.sales_amount) * 1.0 / COUNT(DISTINCT f.order_number), 2)
+        END AS avg_order_value,
+        CASE 
+            WHEN COUNT(DISTINCT f.order_number) = 0 THEN 0
+            ELSE ROUND(SUM(f.quantity) * 1.0 / COUNT(DISTINCT f.order_number), 2)
+        END AS avg_units_per_order
+    FROM Gold.fact_sales f
+    JOIN Gold.dim_products p ON f.product_key = p.product_key
+    GROUP BY p.product_key, p.product_name, p.category_name
+    HAVING SUM(f.sales_amount) > 0  -- Only products with sales
+),
+product_rankings AS (
+    SELECT 
+        *,
+     
+        NTILE(4) OVER (ORDER BY total_revenue DESC) AS revenue_quartile,
+        -- Profit quartile
+        NTILE(4) OVER (ORDER BY total_profit DESC) AS profit_quartile,
+        -- Margin quartile
+        NTILE(4) OVER (ORDER BY avg_margin_percent DESC) AS margin_quartile,
+        -- Customer reach quartile
+        NTILE(4) OVER (ORDER BY unique_customers DESC) AS customer_quartile,
+        -- Volume quartile
+        NTILE(4) OVER (ORDER BY total_units_sold DESC) AS volume_quartile
+    FROM product_performance
+)
+SELECT 
+    product_name,
+    category_name,
+    order_count,
+    total_units_sold,
+    total_revenue,
+    total_profit,
+    avg_margin_percent,
+    unique_customers,
+    avg_order_value,
+    avg_units_per_order,
+    revenue_quartile,
+    profit_quartile,
+    margin_quartile,
+    customer_quartile,
+    volume_quartile,
+    -- Performance score (weighted average)
+    ROUND(
+        ((5 - revenue_quartile) * 0.25) +    
+        ((5 - profit_quartile) * 0.25) +     
+        ((5 - margin_quartile) * 0.20) +
+        ((5 - customer_quartile) * 0.15) +
+        ((5 - volume_quartile) * 0.15)
+    , 2) AS performance_score,
+    -- Performance category
+    CASE 
+        WHEN ROUND(
+            ((5 - revenue_quartile) * 0.25) +
+            ((5 - profit_quartile) * 0.25) +
+            ((5 - margin_quartile) * 0.20) +
+            ((5 - customer_quartile) * 0.15) +
+            ((5 - volume_quartile) * 0.15)
+        , 2) >= 3.5 THEN 'Top Performer'
+        WHEN ROUND(
+            ((5 - revenue_quartile) * 0.25) +
+            ((5 - profit_quartile) * 0.25) +
+            ((5 - margin_quartile) * 0.20) +
+            ((5 - customer_quartile) * 0.15) +
+            ((5 - volume_quartile) * 0.15)
+        , 2) >= 2.5 THEN 'Good Performer'
+        WHEN ROUND(
+            ((5 - revenue_quartile) * 0.25) +
+            ((5 - profit_quartile) * 0.25) +
+            ((5 - margin_quartile) * 0.20) +
+            ((5 - customer_quartile) * 0.15) +
+            ((5 - volume_quartile) * 0.15)
+        , 2) >= 1.5 THEN 'Average Performer'
+        ELSE 'Underperformer'
+    END AS performance_category
+FROM product_rankings
+ORDER BY performance_score DESC, total_revenue DESC;
