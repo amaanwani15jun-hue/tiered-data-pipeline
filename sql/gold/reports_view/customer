@@ -1,0 +1,171 @@
+-- ===============================================================
+-- Gold.Customer_Report_View
+-- Purpose: Comprehensive customer analytics and segmentation view
+-- ===============================================================
+CREATE OR ALTER VIEW Gold.Customer_Report AS
+WITH customer_transactions AS (
+    
+    SELECT 
+        c.customer_id,
+        c.customer_name,
+        c.gender,
+        c.birthdate,
+        c.country,
+        c.age_group,
+        c.create_date,
+        f.order_date,
+        f.order_number,
+        f.sales_amount,
+        f.profit_amount,
+        f.quantity,
+        f.product_key
+    FROM Gold.dim_customers c
+    JOIN Gold.fact_sales f ON c.customer_id = f.customer_id
+    WHERE f.order_date IS NOT NULL
+),
+customer_aggregates AS (
+   
+    SELECT 
+        customer_id,
+        customer_name,
+        gender,
+        birthdate,
+        country,
+        age_group,
+       
+        COUNT(DISTINCT order_number) AS total_orders,
+        COUNT(DISTINCT product_key) AS total_products_purchased,
+        
+        SUM(sales_amount) AS total_sales,
+        SUM(profit_amount) AS total_profit,
+        SUM(quantity) AS total_quantity_purchased,
+     
+        MIN(order_date) AS first_order_date,
+        MAX(order_date) AS last_order_date,
+        
+        DATEDIFF(MONTH, MIN(order_date), MAX(order_date)) AS customer_lifespan_months
+    FROM customer_transactions
+    GROUP BY 
+        customer_id, customer_name, gender, birthdate, 
+        country, age_group
+),
+customer_kpis AS (
+
+    SELECT 
+        ca.*,
+       
+        DATEDIFF(MONTH, ca.last_order_date, GETDATE()) AS months_since_last_order,
+        
+        CASE 
+            WHEN ca.customer_lifespan_months > 0 
+            THEN ROUND(ca.total_orders * 1.0 / ca.customer_lifespan_months, 2)
+            ELSE ca.total_orders 
+        END AS orders_per_month,
+       
+        CASE 
+            WHEN ca.total_orders > 0 
+            THEN ROUND(ca.total_sales * 1.0 / ca.total_orders, 2)
+            ELSE 0
+        END AS avg_order_value,
+        
+        CASE 
+            WHEN ca.customer_lifespan_months > 0 
+            THEN ROUND(ca.total_sales * 1.0 / ca.customer_lifespan_months, 2)
+            ELSE ca.total_sales 
+        END AS avg_monthly_spend,
+      
+        CASE 
+            WHEN ca.total_sales > 0 
+            THEN ROUND(ca.total_profit * 100.0 / ca.total_sales, 2)
+            ELSE 0
+        END AS profit_margin_pct,
+        
+        CASE 
+            WHEN ca.total_orders > 0 
+            THEN ROUND(ca.total_quantity_purchased * 1.0 / ca.total_orders, 2)
+            ELSE 0
+        END AS avg_quantity_per_order
+    FROM customer_aggregates ca
+)
+SELECT 
+    
+    customer_id,
+    customer_name,
+    gender,
+    birthdate,
+    country,
+    
+    
+   
+    first_order_date,
+    last_order_date,
+    total_orders,
+    total_products_purchased,
+    total_quantity_purchased,
+    
+   
+    total_sales,
+    total_profit,
+    profit_margin_pct,
+    avg_order_value,
+    avg_monthly_spend,
+    
+    -- Behavioral KPIs
+    customer_lifespan_months,
+    months_since_last_order,
+    orders_per_month,
+    avg_quantity_per_order,
+    
+    -- RFM Segmentation
+    CASE 
+        WHEN months_since_last_order <= 3 THEN 'Recent'
+        WHEN months_since_last_order <= 6 THEN 'Moderate'
+        WHEN months_since_last_order <= 12 THEN 'Lapsing'
+        ELSE 'Inactive'
+    END AS recency_segment,
+    
+    CASE 
+        WHEN orders_per_month >= 2 THEN 'Frequent'
+        WHEN orders_per_month >= 1 THEN 'Regular'
+        WHEN orders_per_month > 0 THEN 'Occasional'
+        ELSE 'One-time'
+    END AS frequency_segment,
+    
+    CASE 
+        WHEN avg_monthly_spend > 1000 THEN 'High Value'
+        WHEN avg_monthly_spend > 500 THEN 'Medium Value'
+        WHEN avg_monthly_spend > 100 THEN 'Low Value'
+        ELSE 'Minimal'
+    END AS monetary_segment,
+    
+    -- Customer Tier Classification
+    CASE 
+        WHEN customer_lifespan_months >= 12 AND total_sales > 5000 THEN 'VIP'
+        WHEN customer_lifespan_months >= 12 AND total_sales <= 5000 THEN 'Regular'
+        WHEN customer_lifespan_months < 12 THEN 'New'
+        ELSE 'Other'
+    END AS customer_tier,
+    
+    -- Age Group Classification
+    age_group,
+    
+    -- Growth Potential Indicator
+    CASE 
+        WHEN months_since_last_order <= 3 AND orders_per_month >= 1 THEN 'High Potential'
+        WHEN months_since_last_order <= 6 AND avg_order_value > 500 THEN 'Medium Potential'
+        WHEN months_since_last_order <= 12 THEN 'Low Potential'
+        ELSE 'At Risk'
+    END AS growth_potential,
+    
+    -- Customer Health Score (1-10)
+    CASE 
+        WHEN months_since_last_order <= 3 AND avg_monthly_spend > 1000 AND orders_per_month >= 2 THEN 10
+        WHEN months_since_last_order <= 6 AND avg_monthly_spend > 500 THEN 8
+        WHEN months_since_last_order <= 12 AND total_sales > 1000 THEN 6
+        WHEN months_since_last_order <= 12 THEN 4
+        ELSE 2
+    END AS customer_health_score
+    
+FROM customer_kpis
+WHERE total_orders > 0  -- Only include customers with orders
+GO
