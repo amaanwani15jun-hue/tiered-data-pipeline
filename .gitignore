@@ -1,0 +1,6 @@
+# Ignore SSMS/Visual Studio local settings
+.vs/
+*.user
+*.suo
+bin/
+obj/
