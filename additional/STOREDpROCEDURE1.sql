@@ -1,4 +1,4 @@
-CREATE PROCEDURE dbo.MyFirstTest
+CREATE OR ALTER PROCEDURE dbo.MyFirstTest
 AS
 BEGIN
     SELECT 'Hello BQE Software!' AS WelcomeMessage;
